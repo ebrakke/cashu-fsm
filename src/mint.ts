@@ -70,7 +70,7 @@ export const createMintMachine = (url: string) =>
     },
     {
       actions: {
-        handleConnectSuccess: assign((context, event) => ({
+        handleConnectSuccess: assign((_, event) => ({
           info: event.data.info,
           keys: event.data.keys,
           keysets: event.data.keysets,
