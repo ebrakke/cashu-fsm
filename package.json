@@ -1,0 +1,20 @@
+{
+  "name": "cashu-fsm",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && vite build",
+    "test": "vitest",
+    "test:ci": "vitest --ci"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.2",
+    "vite": "^4.3.2",
+    "vitest": "^0.31.0"
+  },
+  "dependencies": {
+    "@cashu/cashu-ts": "0.8.0-rc.3",
+    "xstate": "^4.37.2"
+  }
+}
