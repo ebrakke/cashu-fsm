@@ -8,12 +8,21 @@ export interface Typegen0 {
       data: unknown;
       __tip: "See the XState TS docs to learn how to strongly type this.";
     };
+    "done.invoke.prepareTokens": {
+      type: "done.invoke.prepareTokens";
+      data: unknown;
+      __tip: "See the XState TS docs to learn how to strongly type this.";
+    };
     "done.invoke.requestMint": {
       type: "done.invoke.requestMint";
       data: unknown;
       __tip: "See the XState TS docs to learn how to strongly type this.";
     };
     "error.platform.mint": { type: "error.platform.mint"; data: unknown };
+    "error.platform.prepareTokens": {
+      type: "error.platform.prepareTokens";
+      data: unknown;
+    };
     "error.platform.requestMint": {
       type: "error.platform.requestMint";
       data: unknown;
@@ -22,6 +31,7 @@ export interface Typegen0 {
   };
   invokeSrcNameMap: {
     mint: "done.invoke.mint";
+    prepareTokens: "done.invoke.prepareTokens";
     requestMint: "done.invoke.requestMint";
   };
   missingImplementations: {
@@ -32,13 +42,15 @@ export interface Typegen0 {
   };
   eventsCausingActions: {
     handleCancelMint: "CANCEL_MINT";
+    handleMintRequestSuccess: "MINT_REQUEST_SUCCESS";
     handleMintSuccess: "INVOICE_PAID";
-    handleRequestSuccess: "done.invoke.requestMint";
+    handleSendTokens: "PREPARED_TOKENS";
   };
   eventsCausingDelays: {};
   eventsCausingGuards: {};
   eventsCausingServices: {
-    mint: "done.invoke.requestMint";
+    mint: "MINT_REQUEST_SUCCESS";
+    prepareTokens: "SEND";
     requestMint: "MINT";
   };
   matchesStates:
@@ -46,6 +58,12 @@ export interface Typegen0 {
     | "minting"
     | "minting.mint"
     | "minting.request"
-    | { minting?: "mint" | "request" };
+    | "sending"
+    | "sending.prepareTokens"
+    | "sending.sendTokens"
+    | {
+        minting?: "mint" | "request";
+        sending?: "prepareTokens" | "sendTokens";
+      };
   tags: never;
 }

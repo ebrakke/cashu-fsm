@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { interpret } from "xstate";
-import { createWalletMachine } from "./wallet";
+import { createWalletMachine } from "../wallet";
 
 describe("Wallet Machine", () => {
   describe("Creating a wallet", () => {
@@ -46,7 +46,7 @@ describe("Wallet Machine", () => {
         svc.start();
         svc.send({ type: "MINT", amount: 1000 });
       }));
-    it("should add proofs to the wallet when minting is successful", (t) =>
+    it("should add proofs to the wallet when minting is successful", () =>
       new Promise(async (done) => {
         const machine = await createWalletMachine(
           "https://testnut.cashu.space"
@@ -59,6 +59,21 @@ describe("Wallet Machine", () => {
           if (requested && state.matches("idle")) {
             expect(state.context.proofs.length).toBeGreaterThan(0);
             done(true);
+          }
+        });
+        svc.start();
+        svc.send({ type: "MINT", amount: 1000 });
+      }));
+  });
+  describe("Sending Tokens", () => {
+    it("should separate sent tokens and remaining tokens in context", () =>
+      new Promise(async () => {
+        const machine = await createWalletMachine(
+          "https://testnut.cashu.space"
+        );
+        const svc = interpret(machine).onTransition((state) => {
+          if (state.context.proofs.length > 0) {
+            svc.send({ type: "SEND", amount: 500 });
           }
         });
         svc.start();
