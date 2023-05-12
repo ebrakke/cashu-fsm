@@ -14,6 +14,22 @@ Finite state machines help model all possible states a wallet can be in to help 
 
 By having a library that abstracts away this complex logic, it can free wallet developers up to focus on UI / UX for users, rather than having to manage wallet funds.
 
+### Supported Features
+
+- [x] Connect to mint
+- [x] Request / Mint Tokens
+- [ ] Send Tokens
+- [ ] Receive Tokens
+- [ ] Melt Tokens
+- [ ] Multi Mint Swap
+
+### Supported [NUTS](https://github.com/cashubtc/nuts)
+
+- [x] [NUT-03](https://github.com/cashubtc/nuts/blob/main/03.md)
+- [x] [NUT-04](https://github.com/cashubtc/nuts/blob/main/04.md)
+- [ ] [NUT-05](https://github.com/cashubtc/nuts/blob/main/05.md)
+- [ ] [NUT-06](https://github.com/cashubtc/nuts/blob/main/06.md)
+
 ### Example usage
 
 ```ts
@@ -34,4 +50,4 @@ $: {
 
 ### Example state chart
 
-![statechart](./statechart.png)!
+![statechart](./statechart.png)
