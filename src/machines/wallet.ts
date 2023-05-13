@@ -1,20 +1,27 @@
-import { createMachine, assign } from "xstate";
-import { formatISO } from "date-fns";
-import { interval, switchMap, filter, take, map, from, tap } from "rxjs";
+import { createMachine, assign, spawn, actions, type ActorRef } from "xstate";
+import { last } from "lodash";
+import { Subject } from "rxjs";
 import {
   CashuMint,
   CashuWallet,
   type Proof,
   type RequestMintResponse,
 } from "@cashu/cashu-ts";
+import { Invoice, SentToken } from "../types";
+import { TokenSpentEvent, createTokenChecker$ } from "./token-check";
+import { SendTokenEvent, createTokenSender$ } from "./send";
+import { MintEvent, createMintMachine } from "./mint";
+const { stop } = actions;
 
 type InitialWallet = Omit<WalletContext, "mint" | "wallet">;
 const defaultInitial: InitialWallet = {
   proofs: [],
-  sentProofs: {},
+  sentTokens: [],
   historyProofs: [],
   invoice: null,
   invoiceHistory: [],
+  tokenCheckers: [],
+  tokenSenderRefs: [],
 };
 export const createWalletMachine = async (
   url: string,
@@ -23,6 +30,7 @@ export const createWalletMachine = async (
   const mint = new CashuMint(url);
   const keys = await mint.getKeys();
   const wallet = new CashuWallet(mint, keys);
+  const events$$ = new Subject<WalletEvent>();
   return createMachine(
     {
       id: "wallet",
@@ -38,63 +46,39 @@ export const createWalletMachine = async (
         mint,
         wallet,
       },
+      invoke: {
+        id: "events",
+        src: () => events$$,
+      },
+      on: {
+        TOKEN_SPENT: {
+          actions: ["handleTokenSpent", "stopTokenChecker"],
+          target: ".idle",
+        },
+        TOKENS_SENT: {
+          actions: ["handleTokensSent", "startTokenChecker"],
+        },
+      },
       states: {
         idle: {
           on: {
             MINT: { target: "minting" },
-            SEND: { target: "sending" },
+            SEND: { actions: ["sendTokens"] },
           },
         },
         minting: {
-          initial: "request",
-          states: {
-            request: {
-              on: {
-                MINT_REQUEST_SUCCESS: {
-                  target: "mint",
-                  actions: ["handleMintRequestSuccess"],
-                },
-              },
-              invoke: {
-                src: "requestMint",
-                id: "requestMint",
-              },
+          entry: ["mintTokens"],
+          on: {
+            INVOICE_RECEIVED: {
+              actions: ["handleInvoiceReceived"],
             },
-            mint: {
-              on: {
-                CANCEL_MINT: {
-                  target: "#wallet.idle",
-                  actions: ["handleCancelMint"],
-                },
-                INVOICE_PAID: {
-                  target: "#wallet.idle",
-                  actions: ["handleMintSuccess"],
-                },
-              },
-              invoke: {
-                src: "mint",
-                id: "mint",
-              },
+            INVOICE_PAID: {
+              actions: ["handleMintSuccess"],
+              target: "idle",
             },
-          },
-        },
-        sending: {
-          initial: "prepareTokens",
-          states: {
-            prepareTokens: {
-              on: {
-                PREPARED_TOKENS: {
-                  target: "sendTokens",
-                },
-              },
-              invoke: {
-                src: "prepareTokens",
-                id: "prepareTokens",
-              },
-            },
-            sendTokens: {
-              entry: ["handleSendTokens"],
-              always: { target: "#wallet.idle" },
+            CANCEL_INVOICE: {
+              actions: ["handleCancelMint"],
+              target: "idle",
             },
           },
         },
@@ -102,21 +86,37 @@ export const createWalletMachine = async (
     },
     {
       actions: {
-        handleMintRequestSuccess: assign((_, event) => ({
-          invoice: {
-            amount: event.data.amount,
-            pr: event.data.pr,
-            hash: event.data.hash,
-            status: "pending" as const,
-          },
-        })),
+        sendTokens: assign((context, event) => {
+          const tokenSenderRef = spawn(
+            createTokenSender$(context.wallet, event.amount, context.proofs)
+          );
+          return {
+            tokenSenderRefs: [...context.tokenSenderRefs, tokenSenderRef],
+          };
+        }),
+        mintTokens: assign((context, event) => {
+          const mintRef = spawn(
+            createMintMachine(
+              context.wallet,
+              event.amount,
+              events$$ as Subject<MintEvent>
+            )
+          );
+          return { mintRef };
+        }),
+        handleInvoiceReceived: assign((_, event) => {
+          const { invoice } = event;
+          return {
+            invoice,
+          };
+        }),
         handleMintSuccess: assign((context, event) => {
           return {
             proofs: [...context.proofs, ...event.proofs],
             invoice: null,
             invoiceHistory: [
               ...context.invoiceHistory,
-              { ...context.invoice!, status: "paid" as const },
+              { ...context.invoice!, status: "paid" } satisfies Invoice,
             ],
           };
         }),
@@ -126,65 +126,54 @@ export const createWalletMachine = async (
           return {
             invoiceHistory: [
               ...context.invoiceHistory,
-              { ...invoice, status: "cancelled" as const },
+              { ...invoice, status: "cancelled" } satisfies Invoice,
             ],
             invoice: null,
           };
         }),
-        handleSendTokens: assign((context, event) => {
-          const { returnChange, send } = event; // TODO: what to do if new keys come back?
+        handleTokensSent: assign((context, event) => {
+          const { returnChange, token } = event;
           return {
             proofs: returnChange,
-            sentProofs: {
-              ...context.sentProofs,
-              [formatISO(new Date())]: send,
-            },
+            sentTokens: [...context.sentTokens, token],
           };
         }),
-      },
-      services: {
-        requestMint: (ctx, event) => {
-          const { amount } = event;
-          const { wallet } = ctx;
-          return from(wallet.requestMint(amount)).pipe(
-            map((r) => ({
-              type: "MINT_REQUEST_SUCCESS",
-              data: { ...r, amount },
-            }))
+        handleTokenSpent: assign((context, event) => {
+          const { token } = event;
+          const index = context.sentTokens.findIndex(
+            (t) => t.encoded === token.encoded
           );
-        },
-        mint: (ctx) =>
-          interval(3000).pipe(
-            switchMap(async () => {
-              const { invoice } = ctx;
-              if (!invoice) throw new Error("No invoice");
-              try {
-                const response = await ctx.wallet.requestTokens(
-                  invoice!.amount,
-                  invoice!.hash
-                );
-                console.log("RESPONSE", response);
-                return response;
-              } catch (error) {
-                console.log("Invoice not paid yet");
-              }
-            }),
-            filter((r) => !!r),
-            map((r) => ({ type: "INVOICE_PAID", proofs: r!.proofs })),
-            take(1)
-          ),
-        prepareTokens: (ctx, event) => {
-          return from(ctx.wallet.send(event.amount, ctx.proofs)).pipe(
-            map((r) => ({
-              type: "PREPARED_TOKENS",
-              returnChange: r.returnChange,
-              send: r.send,
-            })),
-            tap((r) => console.log(r)),
-            take(1)
-          );
-        },
+          if (index === -1) return {};
+          stop(`token-checker-${token.encoded}`);
+          return {
+            sentTokens: [
+              ...context.sentTokens.slice(0, index),
+              { ...context.sentTokens[index], status: "spent" as const },
+              ...context.sentTokens.slice(index + 1),
+            ],
+          };
+        }),
+        startTokenChecker: assign((context) => {
+          const token = last(context.sentTokens);
+          if (!token) throw new Error("No tokens to check");
+          return {
+            tokenCheckers: [
+              ...context.tokenCheckers,
+              spawn(
+                createTokenChecker$(context.wallet.mint, token),
+                `token-checker-${token.encoded}`
+              ),
+            ],
+          };
+        }),
+        stopTokenChecker: stop(
+          (context, event) =>
+            context.tokenCheckers.find(
+              (t) => t.id === `token-checker-${event.token.encoded}`
+            )!
+        ),
       },
+      services: {},
     }
   );
 };
@@ -196,24 +185,24 @@ export interface WalletContext {
   wallet: CashuWallet;
   /** A list of spendable proofs */
   proofs: Proof[];
-  /** A record of proofs that have been sent and waiting redemption */
-  sentProofs: Record<string, Proof[]>;
+  /** A record of tokens that have been sent */
+  sentTokens: SentToken[];
   /** A list of spent proofs */
   historyProofs: Proof[];
   /** The active invoice waiting to be paid */
   invoice: Invoice | null;
   /** A list of invoices paid to the mint */
   invoiceHistory: Invoice[];
+
+  /** A list of token senders */
+  tokenSenderRefs: ActorRef<SendTokenEvent>[];
+  /** A list of token checkers */
+  tokenCheckers: ActorRef<TokenSpentEvent>[];
+  /** The mint machine currently running */
+  mintRef?: ActorRef<MintEvent>;
 }
 
-interface Invoice {
-  amount: number;
-  pr: string;
-  hash: string;
-  status: "paid" | "pending" | "expired" | "cancelled";
-}
-
-type WalletEvent =
+export type WalletEvent =
   | { type: "MINT"; amount: number }
   | { type: "SEND"; amount: number }
   | { type: "PREPARED_TOKENS"; returnChange: Proof[]; send: Proof[] }
@@ -222,4 +211,7 @@ type WalletEvent =
   | {
       type: "MINT_REQUEST_SUCCESS";
       data: RequestMintResponse & { amount: number };
-    };
+    }
+  | SendTokenEvent
+  | TokenSpentEvent
+  | MintEvent;
