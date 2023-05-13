@@ -18,8 +18,8 @@ By having a library that abstracts away this complex logic, it can free wallet d
 
 - [x] Connect to mint
 - [x] Request / Mint Tokens
-- [ ] Send Tokens
-- [ ] Receive Tokens
+- [x] Send Tokens
+- [x] Receive Tokens
 - [ ] Melt Tokens
 - [ ] Multi Mint Swap
 

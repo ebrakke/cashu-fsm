@@ -1,5 +1,6 @@
 import { createMachine, assign, spawn, actions, type ActorRef } from "xstate";
-import { last } from "lodash";
+import { formatISO } from "date-fns";
+import { last, sumBy } from "lodash";
 import { Subject } from "rxjs";
 import {
   CashuMint,
@@ -7,21 +8,24 @@ import {
   type Proof,
   type RequestMintResponse,
 } from "@cashu/cashu-ts";
-import { Invoice, SentToken } from "../types";
+import { Invoice, ReceivedToken, SentToken } from "../types";
 import { TokenSpentEvent, createTokenChecker$ } from "./token-check";
 import { SendTokenEvent, createTokenSender$ } from "./send";
 import { MintEvent, createMintMachine } from "./mint";
+import { ReceiveTokenEvent, createTokenReceiver$ } from "./receive";
 const { stop } = actions;
 
-type InitialWallet = Omit<WalletContext, "mint" | "wallet">;
+type InitialWallet = Omit<
+  WalletContext,
+  "mint" | "wallet" | "tokenCheckers" | "tokenSenderRefs" | "tokenReceiverRefs"
+>;
 const defaultInitial: InitialWallet = {
   proofs: [],
   sentTokens: [],
+  receivedTokens: [],
   historyProofs: [],
   invoice: null,
   invoiceHistory: [],
-  tokenCheckers: [],
-  tokenSenderRefs: [],
 };
 export const createWalletMachine = async (
   url: string,
@@ -45,6 +49,9 @@ export const createWalletMachine = async (
         ...initial,
         mint,
         wallet,
+        tokenCheckers: [],
+        tokenSenderRefs: [],
+        tokenReceiverRefs: [],
       },
       invoke: {
         id: "events",
@@ -58,12 +65,16 @@ export const createWalletMachine = async (
         TOKENS_SENT: {
           actions: ["handleTokensSent", "startTokenChecker"],
         },
+        TOKENS_RECEIVED: {
+          actions: ["handleTokensReceived"],
+        },
       },
       states: {
         idle: {
           on: {
             MINT: { target: "minting" },
             SEND: { actions: ["sendTokens"] },
+            RECEIVE: { actions: ["receiveTokens"] },
           },
         },
         minting: {
@@ -94,6 +105,15 @@ export const createWalletMachine = async (
             tokenSenderRefs: [...context.tokenSenderRefs, tokenSenderRef],
           };
         }),
+        receiveTokens: assign((context, event) => {
+          const tokenReceiverRef = spawn(
+            createTokenReceiver$(context.wallet, event.encodedToken),
+            `tokenReceiver-${event.encodedToken}`
+          );
+          return {
+            tokenReceiverRefs: [...context.tokenReceiverRefs, tokenReceiverRef],
+          };
+        }),
         mintTokens: assign((context, event) => {
           const mintRef = spawn(
             createMintMachine(
@@ -114,6 +134,7 @@ export const createWalletMachine = async (
           return {
             proofs: [...context.proofs, ...event.proofs],
             invoice: null,
+            mintRef: undefined,
             invoiceHistory: [
               ...context.invoiceHistory,
               { ...context.invoice!, status: "paid" } satisfies Invoice,
@@ -136,6 +157,21 @@ export const createWalletMachine = async (
           return {
             proofs: returnChange,
             sentTokens: [...context.sentTokens, token],
+          };
+        }),
+        handleTokensReceived: assign((context, event) => {
+          const { token } = event; // TODO: Handle error tokens
+          const proofs = token.token.map((t) => t.proofs).flat();
+          return {
+            proofs: [...context.proofs, ...proofs],
+            receivedTokens: [
+              ...context.receivedTokens,
+              {
+                ...token,
+                date: formatISO(new Date()),
+                amount: sumBy(proofs, "amount"),
+              } satisfies ReceivedToken,
+            ],
           };
         }),
         handleTokenSpent: assign((context, event) => {
@@ -185,8 +221,10 @@ export interface WalletContext {
   wallet: CashuWallet;
   /** A list of spendable proofs */
   proofs: Proof[];
-  /** A record of tokens that have been sent */
+  /** A list of tokens that have been sent */
   sentTokens: SentToken[];
+  /** A list of tokens that have been received */
+  receivedTokens: ReceivedToken[];
   /** A list of spent proofs */
   historyProofs: Proof[];
   /** The active invoice waiting to be paid */
@@ -196,6 +234,8 @@ export interface WalletContext {
 
   /** A list of token senders */
   tokenSenderRefs: ActorRef<SendTokenEvent>[];
+  /** A list of token receivers */
+  tokenReceiverRefs: ActorRef<ReceiveTokenEvent>[];
   /** A list of token checkers */
   tokenCheckers: ActorRef<TokenSpentEvent>[];
   /** The mint machine currently running */
@@ -205,6 +245,7 @@ export interface WalletContext {
 export type WalletEvent =
   | { type: "MINT"; amount: number }
   | { type: "SEND"; amount: number }
+  | { type: "RECEIVE"; encodedToken: string }
   | { type: "PREPARED_TOKENS"; returnChange: Proof[]; send: Proof[] }
   | { type: "CANCEL_MINT" }
   | { type: "INVOICE_PAID"; proofs: Proof[] }
@@ -214,4 +255,5 @@ export type WalletEvent =
     }
   | SendTokenEvent
   | TokenSpentEvent
-  | MintEvent;
+  | MintEvent
+  | ReceiveTokenEvent;

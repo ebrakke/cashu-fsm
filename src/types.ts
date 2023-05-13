@@ -13,3 +13,8 @@ export interface SentToken extends Token {
   amount: number;
   status: "pending" | "spent";
 }
+
+export interface ReceivedToken extends Token {
+  date: string;
+  amount: number;
+}

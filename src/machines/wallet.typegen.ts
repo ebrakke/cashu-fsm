@@ -17,8 +17,10 @@ export interface Typegen0 {
     handleInvoiceReceived: "INVOICE_RECEIVED";
     handleMintSuccess: "INVOICE_PAID";
     handleTokenSpent: "TOKEN_SPENT";
+    handleTokensReceived: "TOKENS_RECEIVED";
     handleTokensSent: "TOKENS_SENT";
     mintTokens: "MINT";
+    receiveTokens: "RECEIVE";
     sendTokens: "SEND";
     startTokenChecker: "TOKENS_SENT";
     stopTokenChecker: "TOKEN_SPENT";
