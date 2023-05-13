@@ -31,14 +31,14 @@ export interface Typegen0 {
     services: never;
   };
   eventsCausingActions: {
-    emitMintSuccess: "INVOICE_PAID";
-    handleInvoiceReceived: "INVOICE_RECEIVED";
+    emitMintSuccess: "MINT_INVOICE_PAID";
+    handleInvoiceReceived: "MINT_INVOICE_RECEIVED";
   };
   eventsCausingDelays: {};
   eventsCausingGuards: {};
   eventsCausingServices: {
-    mint: "INVOICE_RECEIVED";
-    requestMint: "CANCEL_INVOICE" | "xstate.init";
+    mint: "MINT_INVOICE_RECEIVED";
+    requestMint: "MINT_CANCEL_INVOICE" | "xstate.init";
   };
   matchesStates: "cancelled" | "minted" | "minting" | "request";
   tags: never;

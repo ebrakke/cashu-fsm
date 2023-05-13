@@ -3,9 +3,20 @@
 export interface Typegen0 {
   "@@xstate/typegen": true;
   internalEvents: {
+    "done.invoke.payInvoice": {
+      type: "done.invoke.payInvoice";
+      data: unknown;
+      __tip: "See the XState TS docs to learn how to strongly type this.";
+    };
+    "error.platform.payInvoice": {
+      type: "error.platform.payInvoice";
+      data: unknown;
+    };
     "xstate.init": { type: "xstate.init" };
   };
-  invokeSrcNameMap: {};
+  invokeSrcNameMap: {
+    payInvoice: "done.invoke.payInvoice";
+  };
   missingImplementations: {
     actions: never;
     delays: never;
@@ -13,9 +24,10 @@ export interface Typegen0 {
     services: never;
   };
   eventsCausingActions: {
-    handleCancelMint: "CANCEL_INVOICE";
-    handleInvoiceReceived: "INVOICE_RECEIVED";
-    handleMintSuccess: "INVOICE_PAID";
+    handleCancelMint: "MINT_CANCEL_INVOICE";
+    handleInvoiceReceived: "MINT_INVOICE_RECEIVED";
+    handleMintSuccess: "MINT_INVOICE_PAID";
+    handlePayInvoiceSuccess: "PAY_INVOICE_PAID";
     handleTokenSpent: "TOKEN_SPENT";
     handleTokensReceived: "TOKENS_RECEIVED";
     handleTokensSent: "TOKENS_SENT";
@@ -29,7 +41,8 @@ export interface Typegen0 {
   eventsCausingGuards: {};
   eventsCausingServices: {
     events: "xstate.init";
+    payInvoice: "PAY";
   };
-  matchesStates: "idle" | "minting";
+  matchesStates: "idle" | "minting" | "paying";
   tags: never;
 }

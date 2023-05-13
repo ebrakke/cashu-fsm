@@ -1,6 +1,7 @@
 import type { Token } from "@cashu/cashu-ts";
 export interface Invoice {
   amount: number;
+  type: "inbound" | "outbound";
   pr: string;
   hash: string;
   status: "paid" | "pending" | "expired" | "cancelled";

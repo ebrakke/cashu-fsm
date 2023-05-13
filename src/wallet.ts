@@ -1,7 +1,7 @@
 import { sumBy, omit } from "lodash";
-import { interpret, Subscription } from "xstate";
+import { interpret, type Subscription } from "xstate";
 import { createWalletMachine, WalletContext } from "./machines/wallet";
-import { getDecodedToken } from "@cashu/cashu-ts";
+import { getDecodedToken, getEncodedToken } from "@cashu/cashu-ts";
 
 interface WalletState {
   /** Balance of spendable tokens from the mint */
@@ -34,6 +34,14 @@ export interface WalletService {
    */
   receive: (encodedToken: string) => void;
   /**
+   * Request that the mint pay a lightning invoice
+   */
+  pay: (invoice: string) => void;
+  /**
+   * Creates one token from all spendable proofs. This can be saved to a file, along with any other wallet client specific data
+   */
+  backup: () => string;
+  /**
    * A function to receive updates whenever the wallet state changes
    */
   subscribe: (observer: (state: WalletState) => void) => Subscription;
@@ -48,7 +56,7 @@ export const createWalletService = async (
   const machine = await createWalletMachine(url, initial);
   const service = interpret(machine);
 
-  const walletService: WalletService = {
+  const walletService = {
     mint(amount: number) {
       service.send({ type: "MINT", amount });
     },
@@ -65,6 +73,14 @@ export const createWalletService = async (
       }
       service.send({ type: "RECEIVE", encodedToken });
     },
+    pay: (invoice: string) => {
+      service.send({ type: "PAY", invoice });
+    },
+    backup: () => {
+      const proofs = service.getSnapshot().context.proofs;
+      const encoded = getEncodedToken({ token: [{ proofs, mint: url }] });
+      return encoded;
+    },
     subscribe(observer) {
       const unsub = service.subscribe((state) => {
         observer({
@@ -78,7 +94,7 @@ export const createWalletService = async (
       });
       return unsub;
     },
-  };
+  } satisfies WalletService;
   service.onTransition((state) => {
     localStorage.setItem(storageKey, serializeContext(state.context));
   });

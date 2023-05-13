@@ -9,11 +9,11 @@ import { Invoice } from "../types";
 
 export type MintEvent =
   | {
-      type: "INVOICE_RECEIVED";
+      type: "MINT_INVOICE_RECEIVED";
       invoice: Invoice;
     }
-  | { type: "INVOICE_PAID"; proofs: Proof[] }
-  | { type: "CANCEL_INVOICE" };
+  | { type: "MINT_INVOICE_PAID"; proofs: Proof[] }
+  | { type: "MINT_CANCEL_INVOICE" };
 
 interface MintContext {
   pr?: string;
@@ -37,7 +37,7 @@ export const createMintMachine = (
       context: {},
       initial: "request",
       on: {
-        CANCEL_INVOICE: {
+        MINT_CANCEL_INVOICE: {
           target: "cancelled",
         },
       },
@@ -48,7 +48,7 @@ export const createMintMachine = (
             id: "requestMint",
           },
           on: {
-            INVOICE_RECEIVED: {
+            MINT_INVOICE_RECEIVED: {
               actions: ["handleInvoiceReceived"],
               target: "minting",
             },
@@ -60,7 +60,7 @@ export const createMintMachine = (
             id: "mint",
           },
           on: {
-            INVOICE_PAID: {
+            MINT_INVOICE_PAID: {
               actions: ["emitMintSuccess"],
               target: "minted",
             },
@@ -77,14 +77,17 @@ export const createMintMachine = (
     {
       actions: {
         handleInvoiceReceived: assign((_, event) => {
-          event$$.next({ type: "INVOICE_RECEIVED", invoice: event.invoice });
+          event$$.next({
+            type: "MINT_INVOICE_RECEIVED",
+            invoice: event.invoice,
+          });
           return {
             hash: event.invoice.hash,
             pr: event.invoice.pr,
           };
         }),
         emitMintSuccess: (_, event) => {
-          event$$.next({ type: "INVOICE_PAID", proofs: event.proofs });
+          event$$.next({ type: "MINT_INVOICE_PAID", proofs: event.proofs });
         },
       },
       services: {
@@ -101,22 +104,32 @@ export const createMintMachine = (
               }
             }),
             filter((r) => !!r),
-            map((r) => ({ type: "INVOICE_PAID", proofs: r!.proofs })),
+            map(
+              (r) =>
+                ({
+                  type: "MINT_INVOICE_PAID",
+                  proofs: r!.proofs,
+                } satisfies MintEvent)
+            ),
             take(1)
           );
         },
         requestMint: () => {
           return from(wallet.requestMint(amount)).pipe(
-            map((r) => ({
-              type: "INVOICE_RECEIVED",
-              invoice: {
-                amount,
-                date: formatISO(new Date()),
-                hash: r.hash,
-                pr: r.pr,
-                status: "pending",
-              } satisfies Invoice,
-            }))
+            map(
+              (r) =>
+                ({
+                  type: "MINT_INVOICE_RECEIVED",
+                  invoice: {
+                    amount,
+                    date: formatISO(new Date()),
+                    hash: r.hash,
+                    pr: r.pr,
+                    status: "pending",
+                    type: "inbound",
+                  },
+                } satisfies MintEvent)
+            )
           );
         },
       },

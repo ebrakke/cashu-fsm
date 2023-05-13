@@ -10,6 +10,7 @@ export default defineConfig({
       fileName: "cashu-fsm",
       formats: ["es", "umd"],
     },
+    sourcemap: "inline",
   },
   test: {},
   plugins: [dts()],

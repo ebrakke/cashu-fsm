@@ -13,6 +13,7 @@ import { TokenSpentEvent, createTokenChecker$ } from "./token-check";
 import { SendTokenEvent, createTokenSender$ } from "./send";
 import { MintEvent, createMintMachine } from "./mint";
 import { ReceiveTokenEvent, createTokenReceiver$ } from "./receive";
+import { PayInvoiceEvent, createPayInvoicer$ } from "./pay";
 const { stop } = actions;
 
 type InitialWallet = Omit<
@@ -23,7 +24,6 @@ const defaultInitial: InitialWallet = {
   proofs: [],
   sentTokens: [],
   receivedTokens: [],
-  historyProofs: [],
   invoice: null,
   invoiceHistory: [],
 };
@@ -75,20 +75,36 @@ export const createWalletMachine = async (
             MINT: { target: "minting" },
             SEND: { actions: ["sendTokens"] },
             RECEIVE: { actions: ["receiveTokens"] },
+            PAY: { target: "paying" },
           },
         },
         minting: {
           entry: ["mintTokens"],
           on: {
-            INVOICE_RECEIVED: {
+            MINT_INVOICE_RECEIVED: {
               actions: ["handleInvoiceReceived"],
             },
-            INVOICE_PAID: {
+            MINT_INVOICE_PAID: {
               actions: ["handleMintSuccess"],
               target: "idle",
             },
-            CANCEL_INVOICE: {
+            MINT_CANCEL_INVOICE: {
               actions: ["handleCancelMint"],
+              target: "idle",
+            },
+          },
+        },
+        paying: {
+          invoke: {
+            src: "payInvoice",
+            id: "payInvoice",
+          },
+          on: {
+            PAY_INVOICE_PAID: {
+              actions: ["handlePayInvoiceSuccess"],
+              target: "idle",
+            },
+            PAY_INVOICE_ERROR: {
               target: "idle",
             },
           },
@@ -124,6 +140,12 @@ export const createWalletMachine = async (
           );
           return { mintRef };
         }),
+        handlePayInvoiceSuccess: assign((_, event) => {
+          const { change } = event;
+          return {
+            proofs: change,
+          };
+        }),
         handleInvoiceReceived: assign((_, event) => {
           const { invoice } = event;
           return {
@@ -137,7 +159,10 @@ export const createWalletMachine = async (
             mintRef: undefined,
             invoiceHistory: [
               ...context.invoiceHistory,
-              { ...context.invoice!, status: "paid" } satisfies Invoice,
+              {
+                ...context.invoice!,
+                status: "paid",
+              } satisfies Invoice,
             ],
           };
         }),
@@ -209,7 +234,15 @@ export const createWalletMachine = async (
             )!
         ),
       },
-      services: {},
+      services: {
+        payInvoice: (context, event) => {
+          return createPayInvoicer$(
+            event.invoice,
+            context.wallet,
+            context.proofs
+          );
+        },
+      },
     }
   );
 };
@@ -225,8 +258,6 @@ export interface WalletContext {
   sentTokens: SentToken[];
   /** A list of tokens that have been received */
   receivedTokens: ReceivedToken[];
-  /** A list of spent proofs */
-  historyProofs: Proof[];
   /** The active invoice waiting to be paid */
   invoice: Invoice | null;
   /** A list of invoices paid to the mint */
@@ -240,12 +271,15 @@ export interface WalletContext {
   tokenCheckers: ActorRef<TokenSpentEvent>[];
   /** The mint machine currently running */
   mintRef?: ActorRef<MintEvent>;
+  /** payment ref current running */
+  payRef?: ActorRef<PayInvoiceEvent>;
 }
 
 export type WalletEvent =
   | { type: "MINT"; amount: number }
   | { type: "SEND"; amount: number }
   | { type: "RECEIVE"; encodedToken: string }
+  | { type: "PAY"; invoice: string }
   | { type: "PREPARED_TOKENS"; returnChange: Proof[]; send: Proof[] }
   | { type: "CANCEL_MINT" }
   | { type: "INVOICE_PAID"; proofs: Proof[] }
@@ -256,4 +290,5 @@ export type WalletEvent =
   | SendTokenEvent
   | TokenSpentEvent
   | MintEvent
-  | ReceiveTokenEvent;
+  | ReceiveTokenEvent
+  | PayInvoiceEvent;
